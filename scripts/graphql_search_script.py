@@ -2,6 +2,8 @@ import requests as req
 import pandas as pd
 import time
 import os
+from datetime import datetime
+
 
 tokens = ['TOKEN 1', 'TOKEN 2']
 current_token_index = 0
@@ -33,14 +35,14 @@ def fetch_repositories():
     repositories = []
     per_page = 1
     after = None
-    query_string = "stars:>0"
+    query_string = "stars:>20000"
     
     total_time = 0
     total_size = 0
     response_times = []
     response_sizes = []
     
-    while len(repositories) < 1000:
+    while len(repositories) < 4:
         variables = {
             "queryString": query_string,
             "first": per_page,
@@ -102,15 +104,52 @@ def save_csv(data, response_times, response_sizes, filename):
     updated_data['Response Size'] = response_sizes[:len(updated_data)]
     updated_data.to_csv(filepath, index=False, sep=';')
 
+def time_since_last_update(last_update_date):
+    current_date = datetime.utcnow()
+    last_update_date = datetime.strptime(last_update_date, '%Y-%m-%dT%H:%M:%SZ')
+    difference = current_date - last_update_date
+    days = difference.days
+    seconds = difference.seconds
+    elapsed_days = days
+    elapsed_hours = seconds // 3600
+    elapsed_minutes = (seconds % 3600) // 60
+    elapsed_seconds = seconds % 60
+    return f'{elapsed_days} days {elapsed_hours} hours {elapsed_minutes} minutes {elapsed_seconds} seconds'
+
+def calculate_age(date_of_birth):
+    current_date = datetime.utcnow()
+    date_of_birth = datetime.strptime(date_of_birth, '%Y-%m-%dT%H:%M:%SZ')
+    difference = current_date - date_of_birth
+    age = difference.days // 365
+    return age
+
 def process_repositories(repositories, response_times, response_sizes):
     processed_data = pd.DataFrame()
-    processed_data['Repository URL'] = [f"https://github.com/{repo['owner']['login']}/{repo['name']}" for repo in repositories]
-    processed_data['Repository name'] = [repo.get('name') for repo in repositories]
-    processed_data['Repository owner'] = [repo.get('owner', {}).get('login') for repo in repositories]
-    processed_data['Stars'] = [repo.get('stargazers', {}).get('totalCount', 0) if isinstance(repo, dict) else 0 for repo in repositories]
+    processed_data['Repository URL'] = [repo['url'] for repo in repositories]
+    processed_data['Repository name'] = [repo['nameWithOwner'].split('/')[1] for repo in repositories]
+    processed_data['Repository owner'] = [repo['nameWithOwner'].split('/')[0] for repo in repositories]
+    processed_data['Stars'] = [repo.get('stargazerCount', 0) for repo in repositories]
     processed_data['Created At'] = [repo.get('createdAt') for repo in repositories]
     processed_data['Updated At'] = [repo.get('updatedAt') for repo in repositories]
-    
+    processed_data['Age'] = [calculate_age(repo.get('createdAt')) for repo in repositories]
+    processed_data['Last Update'] = [time_since_last_update(repo.get('updatedAt')) for repo in repositories]
+    processed_data['Primary Language'] = [repo.get('primaryLanguage', {}).get('name') if repo.get('primaryLanguage') else None for repo in repositories]
+    processed_data['Number PR Accepted'] = [repo.get('pullRequests', {}).get('totalCount', 0) for repo in repositories]
+    processed_data['Issues Reason'] = [
+        repo.get('closed_issues', {}).get('totalCount', 0) / repo.get('total_issues', {}).get('totalCount', 1)
+        if repo.get('total_issues', {}).get('totalCount', 0) > 0 else None for repo in repositories
+    ]
+    processed_data['Total Releases'] = [repo.get('releases', {}).get('totalCount', 0) for repo in repositories]
+    processed_data['Last Release'] = [
+        repo.get('releases', {}).get('nodes', [{}])[0].get('createdAt') if len(repo.get('releases', {}).get('nodes', [])) > 0 else None
+        for repo in repositories
+    ]
+    processed_data['Total Collaborators'] = [
+        len(set([author.get('login') for author in repo.get('releases', {}).get('nodes', []) if author.get('login')])) 
+        if repo.get('releases', {}).get('nodes') else 1 for repo in repositories
+    ]
+    processed_data['Forks'] = [repo.get('forkCount', 0) for repo in repositories]
+
     save_csv(processed_data, response_times, response_sizes, 'most_popular_repos_graphql.csv')
     print('The repository list has been created')
 
@@ -126,15 +165,40 @@ repo_query = '''
         edges {
           node {
             ... on Repository {
-              name
+              nameWithOwner
+              stargazerCount
+              url
+              languages(first: 1) {
+                edges {
+                  node {
+                    name
+                  }
+                }
+              }
               createdAt
               updatedAt
-              owner {
-                login
+              primaryLanguage {
+                name
               }
-              stargazers {
+              pullRequests(states: MERGED) {
                 totalCount
               }
+              total_issues: issues {
+                totalCount
+              }
+              closed_issues: issues(states: CLOSED) {
+                totalCount
+              }
+              releases(first: 100) {
+                totalCount
+                nodes {
+                  createdAt
+                  author {
+                    login
+                  }
+                }
+              }
+              forkCount
             }
           }
         }
