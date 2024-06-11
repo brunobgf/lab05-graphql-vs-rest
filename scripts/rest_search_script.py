@@ -53,23 +53,19 @@ def fetch_additional_info(repo):
     owner = repo['owner']['login']
     repo_name = repo['name']
 
-    # Fetch primary language
     languages_url = repo['languages_url']
     languages_data, _, _ = get(languages_url)
     primary_language = next(iter(languages_data), None)
 
-    # Fetch pull requests count
     pr_url = f"https://api.github.com/repos/{owner}/{repo_name}/pulls?state=closed"
     prs_data, _, _ = get(pr_url)
     pr_count = sum(1 for pr in prs_data if pr['merged_at'] is not None)
 
-    # Fetch issues count
     issues_url = f"https://api.github.com/repos/{owner}/{repo_name}/issues"
     issues_data, _, _ = get(issues_url)
     total_issues = len(issues_data)
     closed_issues = sum(1 for issue in issues_data if issue['state'] == 'closed')
 
-    # Fetch releases count
     releases_url = f"https://api.github.com/repos/{owner}/{repo_name}/releases"
     releases_data, _, _ = get(releases_url)
     total_releases = len(releases_data)
