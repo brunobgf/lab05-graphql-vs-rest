@@ -42,7 +42,7 @@ def fetch_repositories():
     response_times = []
     response_sizes = []
     
-    while len(repositories) < 4:
+    while len(repositories) < 1000:
         variables = {
             "queryString": query_string,
             "first": per_page,
